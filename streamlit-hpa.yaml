@@ -1,0 +1,19 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: streamlit-hpa
+  # namespace: default   # add if not deploying to default ns
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: streamlit-app          # must match your Deployment name
+  minReplicas: 2                 # your minimum (e.g. for HA)
+  maxReplicas: 10                # prevent runaway scaling
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70     # scale up when avg CPU > 70%

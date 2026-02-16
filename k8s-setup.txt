@@ -1,0 +1,317 @@
+#!/bin/bash
+
+# 1️⃣ Update & install dependencies
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common
+
+# 2️⃣ Install Docker
+sudo apt-get install -y docker.io
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# 3️⃣ Disable swap
+sudo swapoff -a
+sudo sed -i '/ swap / s/^/#/' /etc/fstab
+
+# 4️⃣ Load required kernel modules
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+# 5️⃣ Setup sysctl params for Kubernetes networking
+sudo tee /etc/sysctl.d/kubernetes.conf <<EOF
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+sudo sysctl --system
+
+# 6️⃣ Add Kubernetes apt repository
+curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/kubernetes-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+# 7️⃣ Install kubeadm, kubelet, kubectl
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
+# 8️⃣ Enable and start kubelet
+sudo systemctl enable kubelet
+sudo systemctl start kubelet
+
+echo "✅ Kubernetes prerequisites installed successfully!"
+=================================
+#run only in master node
+sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+
+kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+
+kubectl get pods -n kube-system
+
+5️⃣ Join Worker Node
+
+On Worker EC2, run the saved kubeadm join command from Master.
+
+Verify from Master:
+
+kubectl get nodes
+
+kubectl get nodes -o wide
+
+kubectl get pods -A
+
+================================
+
+kubectl create deployment nginx --image=nginx
+kubectl get pods
+kubectl expose deployment nginx --type=NodePort --port=80
+kubectl get svc
+
+kubectl scale deployment nginx --replicas=3
+kubectl get pods
+
+kubectl logs <pod-name>
+
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+kubectl autoscale deployment nginx --cpu-percent=50 --min=1 --max=3
+kubectl get hpa
+
+
+storage class yaml
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-retain
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+
+PVC + statefulset
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-data
+spec:
+  storageClassName: ebs-retain
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stateful-app
+spec:
+  serviceName: "stateful"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stateful-app
+  template:
+    metadata:
+      labels:
+        app: stateful-app
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: ebs-retain
+      resources:
+        requests:
+          storage: 5Gi
+
+=======================
+
+test stateful recovery
+
+kubectl delete pod stateful-app-0
+kubectl get pods
+kubectl describe pod stateful-app-0
+
+
+clean-up command
+
+kubectl delete deployment nginx
+kubectl delete svc nginx
+kubectl delete statefulset stateful-app
+kubectl delete pvc my-data
+kubectl delete storageclass ebs-retain
+
+
+drain worker node
+
+kubectl drain worker --ignore-daemonsets
+kubectl delete node worker
+
+
+kubectl apply -f storageclass.yaml
+kubectl apply -f pvc.yaml
+kubectl apply -f statefulset.yaml
+kubectl apply -f deployment.yaml
+
+or 
+
+kubectl apply -f .
+
+
+============================================================
+storage class yaml
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ebs-retain
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+
+=============================================
+pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-data
+spec:
+  storageClassName: ebs-retain
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+==============================================
+
+statefulset.yaml
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stateful-app
+spec:
+  serviceName: "stateful"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stateful-app
+  template:
+    metadata:
+      labels:
+        app: stateful-app
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: ebs-retain
+      resources:
+        requests:
+          storage: 5Gi
+
+		  
+=======================================================
+deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "100Mi"
+            cpu: "100m"
+          limits:
+            memory: "200Mi"
+            cpu: "200m"
+========================================================
+
+service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app: nginx
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30080
+==================================================================
+
+
+
+http://<worker-node-ip>:30080
+
+mkdir ~/k8s-practice
+cd ~/k8s-practice
+
+kubectl apply -f .
+
+kubectl get nodes
+kubectl get pods
+kubectl get pvc,pv
+kubectl get svc
+
+kubectl delete pod stateful-app-0
+kubectl get pods
+# Check that stateful-app-0 is recreated and mounts the same PVC
+
+
+kubectl scale deployment nginx-deployment --replicas=5
+kubectl get pods
+
+
+delete all
+
+kubectl delete -f .
+
+
+
+
+
