@@ -1,9 +1,14 @@
 - hosts: devops
   become: yes
 
+  vars:
+    jenkins_keyring: /usr/share/keyrings/jenkins-keyring.gpg
+
   tasks:
 
-    # ---------------- USER + PROJECT ----------------
+    # -----------------------------
+    # System preparation
+    # -----------------------------
 
     - name: Ensure jenkins user exists
       user:
@@ -19,104 +24,85 @@
         group: jenkins
         mode: '0755'
 
-    # ---------------- FIX JENKINS APT TRUST ----------------
-
-    - name: Remove any old Jenkins repo
-      file:
-        path: /etc/apt/sources.list.d/jenkins.list
-        state: absent
-
-    - name: Remove old Jenkins keys
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /usr/share/keyrings/jenkins-keyring.gpg
-        - /etc/apt/keyrings/jenkins-keyring.gpg
-        - /etc/apt/keyrings/jenkins-keyring.asc
-
-    - name: Ensure keyrings directory exists
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-
-    - name: Install base packages
+    - name: Install required base packages
       apt:
         name:
+          - openjdk-17-jdk
           - curl
           - gnupg
           - ca-certificates
+          - apt-transport-https
+          - docker.io
+          - git
+          - unzip
         state: present
         update_cache: yes
 
-    - name: Download Jenkins signing key
-      get_url:
-        url: https://pkg.jenkins.io/debian/jenkins.io-2023.key
-        dest: /etc/apt/keyrings/jenkins-keyring.asc
-        mode: '0644'
+    # -----------------------------
+    # Docker setup
+    # -----------------------------
 
-    - name: Convert Jenkins key to gpg
-      shell: |
-        gpg --dearmor \
-        -o /etc/apt/keyrings/jenkins-keyring.gpg \
-        /etc/apt/keyrings/jenkins-keyring.asc
-      args:
-        creates: /etc/apt/keyrings/jenkins-keyring.gpg
+    - name: Start and enable Docker
+      service:
+        name: docker
+        state: started
+        enabled: yes
 
-    - name: Set key permission for apt
+    - name: Add jenkins to docker group
+      user:
+        name: jenkins
+        groups: docker
+        append: yes
+
+    # -----------------------------
+    # Jenkins installation
+    # -----------------------------
+
+    - name: Ensure keyring directory exists
       file:
-        path: /etc/apt/keyrings/jenkins-keyring.gpg
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Jenkins GPG key
+      shell: |
+        set -o pipefail
+        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key \
+        | gpg --dearmor \
+        | tee {{ jenkins_keyring }} > /dev/null
+      args:
+        executable: /bin/bash
+        creates: "{{ jenkins_keyring }}"
+
+    - name: Set Jenkins key permission
+      file:
+        path: "{{ jenkins_keyring }}"
         mode: '0644'
 
     - name: Add Jenkins repository
       copy:
         dest: /etc/apt/sources.list.d/jenkins.list
         content: |
-          deb [signed-by=/etc/apt/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian binary/
+          deb [signed-by={{ jenkins_keyring }}] https://pkg.jenkins.io/debian binary/
 
     - name: Update apt cache
       apt:
         update_cache: yes
 
-    # ---------------- INSTALL SOFTWARE ----------------
-
-    - name: Install required packages
+    - name: Install Jenkins
       apt:
-        name:
-          - openjdk-17-jdk
-          - docker.io
-          - git
-          - unzip
-          - jenkins
+        name: jenkins
         state: present
 
-    # ---------------- SERVICES ----------------
-
-    - name: Start Docker
-      service:
-        name: docker
-        state: started
-        enabled: yes
-
-    - name: Start Jenkins
+    - name: Start and enable Jenkins
       service:
         name: jenkins
         state: started
         enabled: yes
 
-    - name: Add Jenkins to Docker group
-      user:
-        name: jenkins
-        groups: docker
-        append: yes
-
-    - name: Restart Jenkins
-      service:
-        name: jenkins
-        state: restarted
-
-    # ---------------- CLI TOOLS ----------------
+    # -----------------------------
+    # Kubernetes tools
+    # -----------------------------
 
     - name: Install kubectl
       get_url:
