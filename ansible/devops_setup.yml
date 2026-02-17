@@ -2,6 +2,13 @@
   become: yes
 
   tasks:
+    - name: Ensure jenkins user exists
+      become: yes
+      user:
+        name: jenkins
+        shell: /bin/bash
+        create_home: yes
+
     - name: Create project directory
       file:
         path: /opt/devops-project
@@ -11,12 +18,16 @@
         mode: '0755'
 
     - name: Install required packages
+      become: yes
       apt:
         name:
           - openjdk-17-jdk
+          - curl
+          - gnupg
           - docker.io
           - git
           - unzip
+        state: present
         update_cache: yes
 
     - name: Start Docker
@@ -25,21 +36,32 @@
         state: started
         enabled: yes
 
-    - name: Add Jenkins repo key
+    - name: Add Jenkins GPG key
+      become: yes
       shell: |
-        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io.key | tee \
-        /usr/share/keyrings/jenkins-keyring.asc
+        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key \
+        | gpg --dearmor -o /usr/share/keyrings/jenkins-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/jenkins-keyring.gpg
 
-    - name: Add Jenkins repo
-      shell: |
-        echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-        https://pkg.jenkins.io/debian binary/ > \
-        /etc/apt/sources.list.d/jenkins.list
+
+    - name: Add Jenkins repository
+      become: yes
+      copy:
+        dest: /etc/apt/sources.list.d/jenkins.list
+        content: |
+          deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian binary/
+
+    - name: Update apt cache
+      become: yes
+      apt:
+        update_cache: yes
 
     - name: Install Jenkins
+      become: yes
       apt:
         name: jenkins
-        update_cache: yes
+        state: present
 
     - name: Start Jenkins
       service:
