@@ -2,8 +2,8 @@
   become: yes
 
   tasks:
+
     - name: Ensure jenkins user exists
-      become: yes
       user:
         name: jenkins
         shell: /bin/bash
@@ -17,51 +17,61 @@
         group: jenkins
         mode: '0755'
 
+    # ---------- FIX REPO ----------
+
+    - name: Install base packages (no update yet)
+      apt:
+        name:
+          - curl
+          - gnupg
+          - ca-certificates
+        state: present
+
+    - name: Create keyrings directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Jenkins key
+      get_url:
+        url: https://pkg.jenkins.io/debian/jenkins.io-2023.key
+        dest: /etc/apt/keyrings/jenkins-keyring.asc
+
+    - name: Convert Jenkins key
+      shell: |
+        gpg --dearmor -o /etc/apt/keyrings/jenkins-keyring.gpg \
+        /etc/apt/keyrings/jenkins-keyring.asc
+      args:
+        creates: /etc/apt/keyrings/jenkins-keyring.gpg
+
+    - name: Add Jenkins repo
+      copy:
+        dest: /etc/apt/sources.list.d/jenkins.list
+        content: |
+          deb [signed-by=/etc/apt/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian binary/
+
+    - name: Update apt cache safely
+      apt:
+        update_cache: yes
+
+    # ---------- NOW INSTALL SOFTWARE ----------
+
     - name: Install required packages
-      become: yes
       apt:
         name:
           - openjdk-17-jdk
-          - curl
-          - gnupg
           - docker.io
           - git
           - unzip
+          - jenkins
         state: present
-        update_cache: yes
 
     - name: Start Docker
       service:
         name: docker
         state: started
         enabled: yes
-
-    - name: Add Jenkins GPG key
-      become: yes
-      shell: |
-        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key \
-        | gpg --dearmor -o /usr/share/keyrings/jenkins-keyring.gpg
-      args:
-        creates: /usr/share/keyrings/jenkins-keyring.gpg
-
-
-    - name: Add Jenkins repository
-      become: yes
-      copy:
-        dest: /etc/apt/sources.list.d/jenkins.list
-        content: |
-          deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian binary/
-
-    - name: Update apt cache
-      become: yes
-      apt:
-        update_cache: yes
-
-    - name: Install Jenkins
-      become: yes
-      apt:
-        name: jenkins
-        state: present
 
     - name: Start Jenkins
       service:
@@ -91,4 +101,3 @@
         url: https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
         dest: /usr/local/bin/kops
         mode: '0755'
-
