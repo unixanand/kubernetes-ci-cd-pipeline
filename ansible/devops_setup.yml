@@ -3,6 +3,8 @@
 
   tasks:
 
+    # ---------------- USER + PROJECT ----------------
+
     - name: Ensure jenkins user exists
       user:
         name: jenkins
@@ -17,45 +19,67 @@
         group: jenkins
         mode: '0755'
 
-    # ---------- FIX REPO ----------
+    # ---------------- FIX JENKINS APT TRUST ----------------
 
-    - name: Install base packages (no update yet)
+    - name: Remove any old Jenkins repo
+      file:
+        path: /etc/apt/sources.list.d/jenkins.list
+        state: absent
+
+    - name: Remove old Jenkins keys
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/share/keyrings/jenkins-keyring.gpg
+        - /etc/apt/keyrings/jenkins-keyring.gpg
+        - /etc/apt/keyrings/jenkins-keyring.asc
+
+    - name: Ensure keyrings directory exists
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Install base packages
       apt:
         name:
           - curl
           - gnupg
           - ca-certificates
         state: present
+        update_cache: yes
 
-    - name: Create keyrings directory
-      file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-
-    - name: Download Jenkins key
+    - name: Download Jenkins signing key
       get_url:
         url: https://pkg.jenkins.io/debian/jenkins.io-2023.key
         dest: /etc/apt/keyrings/jenkins-keyring.asc
+        mode: '0644'
 
-    - name: Convert Jenkins key
+    - name: Convert Jenkins key to gpg
       shell: |
-        gpg --dearmor -o /etc/apt/keyrings/jenkins-keyring.gpg \
+        gpg --dearmor \
+        -o /etc/apt/keyrings/jenkins-keyring.gpg \
         /etc/apt/keyrings/jenkins-keyring.asc
       args:
         creates: /etc/apt/keyrings/jenkins-keyring.gpg
 
-    - name: Add Jenkins repo
+    - name: Set key permission for apt
+      file:
+        path: /etc/apt/keyrings/jenkins-keyring.gpg
+        mode: '0644'
+
+    - name: Add Jenkins repository
       copy:
         dest: /etc/apt/sources.list.d/jenkins.list
         content: |
           deb [signed-by=/etc/apt/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian binary/
 
-    - name: Update apt cache safely
+    - name: Update apt cache
       apt:
         update_cache: yes
 
-    # ---------- NOW INSTALL SOFTWARE ----------
+    # ---------------- INSTALL SOFTWARE ----------------
 
     - name: Install required packages
       apt:
@@ -66,6 +90,8 @@
           - unzip
           - jenkins
         state: present
+
+    # ---------------- SERVICES ----------------
 
     - name: Start Docker
       service:
@@ -79,7 +105,7 @@
         state: started
         enabled: yes
 
-    - name: Add Jenkins user to Docker group
+    - name: Add Jenkins to Docker group
       user:
         name: jenkins
         groups: docker
@@ -89,6 +115,8 @@
       service:
         name: jenkins
         state: restarted
+
+    # ---------------- CLI TOOLS ----------------
 
     - name: Install kubectl
       get_url:
