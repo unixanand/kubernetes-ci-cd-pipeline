@@ -1,9 +1,6 @@
 - hosts: devops
   become: yes
 
-  vars:
-    jenkins_keyring: /usr/share/keyrings/jenkins-keyring.gpg
-
   tasks:
 
     # -----------------------------
@@ -55,37 +52,27 @@
         append: yes
 
     # -----------------------------
-    # Jenkins installation
+    # Jenkins installation (stable + keyserver)
     # -----------------------------
 
-    - name: Ensure keyring directory exists
+    - name: Remove old Jenkins repo if exists
       file:
-        path: /usr/share/keyrings
-        state: directory
-        mode: '0755'
+        path: /etc/apt/sources.list.d/jenkins.list
+        state: absent
 
-    - name: Add Jenkins GPG key
+    - name: Import Jenkins key from Ubuntu keyserver
       shell: |
-        set -o pipefail
-        curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key \
-        | gpg --dearmor \
-        | tee {{ jenkins_keyring }} > /dev/null
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 7198F4B714ABFC68
       args:
-        executable: /bin/bash
-        creates: "{{ jenkins_keyring }}"
-
-    - name: Set Jenkins key permission
-      file:
-        path: "{{ jenkins_keyring }}"
-        mode: '0644'
+        warn: false
 
     - name: Add Jenkins repository
       copy:
         dest: /etc/apt/sources.list.d/jenkins.list
         content: |
-          deb [signed-by={{ jenkins_keyring }}] https://pkg.jenkins.io/debian binary/
+          deb https://pkg.jenkins.io/debian-stable binary/
 
-    - name: Update apt cache
+    - name: Update apt cache after Jenkins repo
       apt:
         update_cache: yes
 
