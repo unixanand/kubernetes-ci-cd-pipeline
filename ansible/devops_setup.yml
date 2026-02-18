@@ -1,104 +1,150 @@
 - hosts: devops
   become: yes
 
+  vars:
+    jenkins_home: /var/jenkins_home
+    kubeconfig_host: /home/ubuntu/.kube
+
   tasks:
 
-    # -----------------------------
-    # System preparation
-    # -----------------------------
+  # -------------------------------------------------
+  # System preparation
+  # -------------------------------------------------
 
-    - name: Ensure jenkins user exists
-      user:
-        name: jenkins
-        shell: /bin/bash
-        create_home: yes
+  - name: Ensure jenkins user exists
+    user:
+      name: jenkins
+      shell: /bin/bash
+      create_home: yes
 
-    - name: Create project directory
+  - name: Create project directory
+    file:
+      path: /opt/devops-project
+      state: directory
+      owner: jenkins
+      group: jenkins
+      mode: '0755'
+
+  - name: Install base packages
+    apt:
+      name:
+        - curl
+        - ca-certificates
+        - gnupg
+        - docker.io
+        - git
+        - unzip
+      state: present
+      update_cache: yes
+
+  # -------------------------------------------------
+  # Docker setup
+  # -------------------------------------------------
+
+  - name: Start and enable Docker
+    service:
+      name: docker
+      state: started
+      enabled: yes
+
+  - name: Add ubuntu user to docker group
+    user:
+      name: ubuntu
+      groups: docker
+      append: yes
+
+  - name: Add jenkins user to docker group
+    user:
+      name: jenkins
+      groups: docker
+      append: yes
+
+  # -------------------------------------------------
+  # Kubernetes tools
+  # -------------------------------------------------
+
+  - name: Install kubectl
+    get_url:
+      url: https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl
+      dest: /usr/local/bin/kubectl
+      mode: '0755'
+
+  - name: Install kops
+    get_url:
+      url: https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
+      dest: /usr/local/bin/kops
+      mode: '0755'
+
+  - name: Ensure kubeconfig directory exists
+    file:
+      path: "{{ kubeconfig_host }}"
+      state: directory
+      owner: ubuntu
+      group: ubuntu
+      mode: '0755'
+
+  # -------------------------------------------------
+  # Jenkins via Docker (production-style)
+  # -------------------------------------------------
+
+  - name: Create Jenkins home directory
+    file:
+      path: "{{ jenkins_home }}"
+      state: directory
+      owner: 1000
+      group: 1000
+      mode: '0755'
+
+  - name: Pull Jenkins Docker image
+    community.docker.docker_image:
+      name: jenkins/jenkins
+      tag: lts
+      source: pull
+
+  - name: Run Jenkins container
+    community.docker.docker_container:
+      name: jenkins
+      image: jenkins/jenkins:lts
+      state: started
+      restart_policy: always
+      ports:
+        - "8080:8080"
+        - "50000:50000"
+      volumes:
+        - "{{ jenkins_home }}:/var/jenkins_home"
+        - "/var/run/docker.sock:/var/run/docker.sock"
+        - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
+
+    # -------------------------------------------------
+    # Generate kubeconfig for Jenkins (automated)
+    # -------------------------------------------------
+
+    - name: Ensure kube config directory exists
       file:
-        path: /opt/devops-project
-        state: directory
-        owner: jenkins
-        group: jenkins
-        mode: '0755'
+       path: /home/ubuntu/.kube
+       state: directory
+       owner: ubuntu
+       group: ubuntu
+       mode: '0755'
 
-    - name: Install required base packages
-      apt:
-        name:
-          - openjdk-17-jdk
-          - curl
-          - gnupg
-          - ca-certificates
-          - apt-transport-https
-          - docker.io
-          - git
-          - unzip
-        state: present
-        update_cache: yes
-
-    # -----------------------------
-    # Docker setup
-    # -----------------------------
-
-    - name: Start and enable Docker
-      service:
-        name: docker
-        state: started
-        enabled: yes
-
-    - name: Add jenkins to docker group
-      user:
-        name: jenkins
-        groups: docker
-        append: yes
-
-    # -----------------------------
-    # Jenkins installation (stable + keyserver)
-    # -----------------------------
-
-    - name: Remove old Jenkins repo if exists
-      file:
-        path: /etc/apt/sources.list.d/jenkins.list
-        state: absent
-
-    - name: Import Jenkins key from Ubuntu keyserver
+    - name: Export kubeconfig from kops cluster
       shell: |
-        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 7198F4B714ABFC68
+        export KOPS_STATE_STORE=s3://devops-proj1-kops-state-bucket-unique
+        kops export kubecfg --name my-cluster.example.com --admin
       args:
-        warn: false
+        creates: /home/ubuntu/.kube/config
+      environment:
+         KOPS_STATE_STORE: "s3://devops-proj1-kops-state-bucket-unique"
+      become: yes
+      become_user: ubuntu
 
-    - name: Add Jenkins repository
-      copy:
-        dest: /etc/apt/sources.list.d/jenkins.list
-        content: |
-          deb https://pkg.jenkins.io/debian-stable binary/
+    - name: Verify kubeconfig exists
+      stat:
+        path: /home/ubuntu/.kube/config
+      register: kubeconfig_stat
 
-    - name: Update apt cache after Jenkins repo
-      apt:
-        update_cache: yes
+    - name: Fail if kubeconfig not created
+      fail:
+        msg: "kubeconfig file was not created, check kops cluster or state store"
+      when: not kubeconfig_stat.stat.exists
 
-    - name: Install Jenkins
-      apt:
-        name: jenkins
-        state: present
-
-    - name: Start and enable Jenkins
-      service:
-        name: jenkins
-        state: started
-        enabled: yes
-
-    # -----------------------------
-    # Kubernetes tools
-    # -----------------------------
-
-    - name: Install kubectl
-      get_url:
-        url: https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl
-        dest: /usr/local/bin/kubectl
-        mode: '0755'
-
-    - name: Install kops
-      get_url:
-        url: https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
-        dest: /usr/local/bin/kops
-        mode: '0755'

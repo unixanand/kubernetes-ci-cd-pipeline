@@ -20,7 +20,12 @@ data "aws_ami" "ubuntu" {
 
   filter {
     name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
   }
 }
 
@@ -76,6 +81,13 @@ resource "aws_security_group" "k8s_sg" {
   ingress {
     from_port   = 8501
     to_port     = 8501
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 50000
+    to_port     = 50000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
