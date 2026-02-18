@@ -112,6 +112,7 @@ resource "aws_instance" "jenkins_server" {
   instance_type          = "t2.xlarge"
   key_name               = "my-amazon-linux-key"
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.jenkins_instance_profile.name
 
   tags = {
     Name = "Jenkins-server"

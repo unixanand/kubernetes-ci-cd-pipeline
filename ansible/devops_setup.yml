@@ -59,29 +59,6 @@
       groups: docker
       append: yes
 
-  # -------------------------------------------------
-  # Kubernetes tools
-  # -------------------------------------------------
-
-  - name: Install kubectl
-    get_url:
-      url: https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl
-      dest: /usr/local/bin/kubectl
-      mode: '0755'
-
-  - name: Install kops
-    get_url:
-      url: https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
-      dest: /usr/local/bin/kops
-      mode: '0755'
-
-  - name: Ensure kubeconfig directory exists
-    file:
-      path: "{{ kubeconfig_host }}"
-      state: directory
-      owner: ubuntu
-      group: ubuntu
-      mode: '0755'
 
   # -------------------------------------------------
   # Jenkins via Docker (production-style)
@@ -114,37 +91,4 @@
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
-
-    # -------------------------------------------------
-    # Generate kubeconfig for Jenkins (automated)
-    # -------------------------------------------------
-
-    - name: Ensure kube config directory exists
-      file:
-       path: /home/ubuntu/.kube
-       state: directory
-       owner: ubuntu
-       group: ubuntu
-       mode: '0755'
-
-    - name: Export kubeconfig from kops cluster
-      shell: |
-        export KOPS_STATE_STORE=s3://devops-proj1-kops-state-bucket-unique
-        kops export kubecfg --name my-cluster.example.com --admin
-      args:
-        creates: /home/ubuntu/.kube/config
-      environment:
-         KOPS_STATE_STORE: "s3://devops-proj1-kops-state-bucket-unique"
-      become: yes
-      become_user: ubuntu
-
-    - name: Verify kubeconfig exists
-      stat:
-        path: /home/ubuntu/.kube/config
-      register: kubeconfig_stat
-
-    - name: Fail if kubeconfig not created
-      fail:
-        msg: "kubeconfig file was not created, check kops cluster or state store"
-      when: not kubeconfig_stat.stat.exists
 
