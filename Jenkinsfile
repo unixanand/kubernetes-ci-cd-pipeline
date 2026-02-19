@@ -9,12 +9,7 @@ pipeline {
 
     stages {
 
-        stage('Prepare Workspace') {
-            steps {
-                sh 'mkdir -p /opt/devops-project'
-            }
-        }
-
+        
         stage('Clone Repo') {
             steps {
                 dir('/opt/devops-project') {
