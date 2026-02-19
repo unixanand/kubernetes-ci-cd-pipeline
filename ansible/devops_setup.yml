@@ -59,7 +59,11 @@
       name: jenkins
       groups: docker
       append: yes
-
+  
+  - name: Get Docker socket group id
+    command: stat -c '%g' /var/run/docker.sock
+    register: docker_sock_gid
+    changed_when: false
 
   # -------------------------------------------------
   # Build custom Jenkins image with Docker CLI
@@ -77,6 +81,9 @@
         FROM jenkins/jenkins:lts
         USER root
         RUN apt-get update && apt-get install -y docker.io
+        # Add docker group with same GID as host
+        RUN groupadd -g {{ docker_sock_gid.stdout }} docker || true
+        RUN usermod -aG docker jenkins
         USER jenkins
 
   - name: Build custom Jenkins image
