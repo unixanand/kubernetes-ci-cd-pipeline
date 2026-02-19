@@ -39,7 +39,7 @@
       update_cache: yes
 
   # -------------------------------------------------
-  # Docker setup on EC2 host
+  # Docker setup on host
   # -------------------------------------------------
 
   - name: Install Docker on host
@@ -102,7 +102,7 @@
       source: build
 
   # -------------------------------------------------
-  # Run Jenkins container as root (for Docker socket access)
+  # Run Jenkins container as root (privileged for Docker)
   # -------------------------------------------------
 
   - name: Create Jenkins home directory
@@ -113,7 +113,7 @@
       group: 1000
       mode: '0755'
 
-  - name: Run Jenkins container as root
+  - name: Run Jenkins container (root + privileged)
     community.docker.docker_container:
       name: jenkins
       image: jenkins-docker
@@ -121,6 +121,7 @@
       recreate: yes
       restart_policy: always
       user: root
+      privileged: yes
       ports:
         - "8080:8080"
         - "50000:50000"
