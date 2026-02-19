@@ -32,32 +32,34 @@
         - curl
         - ca-certificates
         - gnupg
-        - docker.io
         - git
         - unzip
+        - lsb-release
       state: present
       update_cache: yes
 
   # -------------------------------------------------
-  # Docker setup
+  # Docker setup on EC2 host
   # -------------------------------------------------
 
-  - name: Start and enable Docker
+  - name: Install Docker on host
+    apt:
+      name:
+        - docker.io
+      state: present
+      update_cache: yes
+
+  - name: Start and enable Docker service
     service:
       name: docker
       state: started
       enabled: yes
 
-  - name: Get Docker socket group id
-    command: stat -c '%g' /var/run/docker.sock
-    register: docker_sock_gid
-    changed_when: false
-
   # -------------------------------------------------
   # Build custom Jenkins image with Docker CLI
   # -------------------------------------------------
 
-  - name: Ensure Jenkins image build directory exists
+  - name: Ensure Jenkins Docker build directory exists
     file:
       path: "{{ jenkins_image_dir }}"
       state: directory
@@ -73,15 +75,26 @@
 
         USER root
 
+        # Install official Docker CLI inside Jenkins container
         RUN apt-get update \
-         && apt-get install -y docker.io \
-         && groupadd -for -g {{ docker_sock_gid.stdout }} docker \
-         && usermod -aG docker jenkins \
+         && apt-get install -y \
+              ca-certificates \
+              curl \
+              gnupg \
+              lsb-release \
+         && mkdir -m 0755 -p /etc/apt/keyrings \
+         && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+         && echo \
+           "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+           $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+           > /etc/apt/sources.list.d/docker.list \
+         && apt-get update \
+         && apt-get install -y docker-ce-cli \
          && apt-get clean
 
         USER jenkins
 
-  - name: Build custom Jenkins image
+  - name: Build custom Jenkins Docker image
     community.docker.docker_image:
       name: jenkins-docker
       build:
@@ -89,7 +102,7 @@
       source: build
 
   # -------------------------------------------------
-  # Jenkins container
+  # Run Jenkins container as root (for Docker socket access)
   # -------------------------------------------------
 
   - name: Create Jenkins home directory
@@ -100,13 +113,14 @@
       group: 1000
       mode: '0755'
 
-  - name: Run Jenkins container
+  - name: Run Jenkins container as root
     community.docker.docker_container:
       name: jenkins
       image: jenkins-docker
       state: started
       recreate: yes
       restart_policy: always
+      user: root
       ports:
         - "8080:8080"
         - "50000:50000"
@@ -114,5 +128,3 @@
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
-      groups:
-        - "{{ docker_sock_gid.stdout }}"
