@@ -70,8 +70,15 @@
       dest: "{{ jenkins_image_dir }}/Dockerfile"
       content: |
         FROM jenkins/jenkins:lts
+
         USER root
-        RUN apt-get update && apt-get install -y --no-install-recommends docker.io
+
+        RUN apt-get update \
+         && apt-get install -y docker.io \
+         && groupadd -for -g {{ docker_sock_gid.stdout }} docker \
+         && usermod -aG docker jenkins \
+         && apt-get clean
+
         USER jenkins
 
   - name: Build custom Jenkins image
