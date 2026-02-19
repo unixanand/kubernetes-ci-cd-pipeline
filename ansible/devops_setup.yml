@@ -48,18 +48,6 @@
       state: started
       enabled: yes
 
-  - name: Add ubuntu user to docker group
-    user:
-      name: ubuntu
-      groups: docker
-      append: yes
-
-  - name: Add jenkins user to docker group
-    user:
-      name: jenkins
-      groups: docker
-      append: yes
-  
   - name: Get Docker socket group id
     command: stat -c '%g' /var/run/docker.sock
     register: docker_sock_gid
@@ -69,10 +57,13 @@
   # Build custom Jenkins image with Docker CLI
   # -------------------------------------------------
 
-  - name: Create directory for Jenkins Docker build
+  - name: Ensure Jenkins image build directory exists
     file:
       path: "{{ jenkins_image_dir }}"
       state: directory
+      owner: ubuntu
+      group: ubuntu
+      mode: '0755'
 
   - name: Create Dockerfile for Jenkins with Docker CLI
     copy:
@@ -80,10 +71,7 @@
       content: |
         FROM jenkins/jenkins:lts
         USER root
-        RUN apt-get update && apt-get install -y docker.io
-        # Add docker group with same GID as host
-        RUN groupadd -g {{ docker_sock_gid.stdout }} docker || true
-        RUN usermod -aG docker jenkins
+        RUN apt-get update && apt-get install -y --no-install-recommends docker.io
         USER jenkins
 
   - name: Build custom Jenkins image
@@ -92,7 +80,6 @@
       build:
         path: "{{ jenkins_image_dir }}"
       source: build
-
 
   # -------------------------------------------------
   # Jenkins container
@@ -120,3 +107,5 @@
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
+      group_add:
+        - "{{ docker_sock_gid.stdout }}"
