@@ -12,17 +12,16 @@ pipeline {
         
         stage('Clone Repo') {
             steps {
-                dir('/opt/devops-project') {
+                
                     git branch: 'main', url: 'https://github.com/unixanand/kubernetes-ci-cd-pipeline.git'
-                }
-            }
+               }
         }
 
         stage('Build Docker Image') {
             steps {
-                dir('/opt/devops-project') {
+                
                     sh 'docker build -t $IMAGE_NAME:$TAG .'
-                }
+                
             }
         }
 
