@@ -9,7 +9,7 @@
   tasks:
 
   # -------------------------------------------------
-  # System preparation
+  # 1. System preparation
   # -------------------------------------------------
 
   - name: Ensure jenkins user exists
@@ -39,7 +39,7 @@
       update_cache: yes
 
   # -------------------------------------------------
-  # Docker setup on host
+  # 2. Docker setup on host
   # -------------------------------------------------
 
   - name: Install Docker on host
@@ -56,7 +56,19 @@
       enabled: yes
 
   # -------------------------------------------------
-  # Build custom Jenkins image with Docker CLI
+  # 3. Ensure kubeconfig directory exists
+  # -------------------------------------------------
+
+  - name: Ensure kubeconfig directory exists
+    file:
+      path: "{{ kubeconfig_host }}"
+      state: directory
+      owner: ubuntu
+      group: ubuntu
+      mode: '0755'
+
+  # -------------------------------------------------
+  # 4. Build custom Jenkins image with Docker CLI
   # -------------------------------------------------
 
   - name: Ensure Jenkins Docker build directory exists
@@ -102,7 +114,7 @@
       source: build
 
   # -------------------------------------------------
-  # Run Jenkins container as root (privileged for Docker)
+  # 5. Run Jenkins container as root + privileged
   # -------------------------------------------------
 
   - name: Create Jenkins home directory
@@ -130,21 +142,22 @@
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
 
-  # ---------------------------
+  # -------------------------------------------------
   # 6. Install k3s (lightweight Kubernetes)
-  # ---------------------------
+  # -------------------------------------------------
+
   - name: Download k3s install script
     get_url:
       url: https://get.k3s.io
       dest: /tmp/k3s_install.sh
       mode: '0755'
 
-  - name: Install k3s single-node
-    shell: /tmp/k3s_install.sh
+  - name: Install k3s single-node with kubeconfig mode 644
+    shell: /tmp/k3s_install.sh --write-kubeconfig-mode 644
     args:
       creates: /usr/local/bin/kubectl
 
-  - name: Copy kubeconfig for user
+  - name: Copy kubeconfig for Jenkins
     copy:
       src: /etc/rancher/k3s/k3s.yaml
       dest: "{{ kubeconfig_host }}/config"
@@ -153,16 +166,17 @@
       group: ubuntu
       mode: '0644'
 
-  - name: Set KUBECONFIG environment
+  - name: Set KUBECONFIG environment for ubuntu
     lineinfile:
       path: /home/ubuntu/.bashrc
       line: 'export KUBECONFIG={{ kubeconfig_host }}/config'
       create: yes
       state: present
 
-  # ---------------------------
-  # 7. Verify k3s
-  # ---------------------------
+  # -------------------------------------------------
+  # 7. Verify k3s installation
+  # -------------------------------------------------
+
   - name: Test kubectl version
     command: kubectl version --client
     register: kubectl_version
