@@ -129,3 +129,44 @@
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
+
+  # ---------------------------
+  # 6. Install k3s (lightweight Kubernetes)
+  # ---------------------------
+  - name: Download k3s install script
+    get_url:
+      url: https://get.k3s.io
+      dest: /tmp/k3s_install.sh
+      mode: '0755'
+
+  - name: Install k3s single-node
+    shell: /tmp/k3s_install.sh
+    args:
+      creates: /usr/local/bin/kubectl
+
+  - name: Copy kubeconfig for user
+    copy:
+      src: /etc/rancher/k3s/k3s.yaml
+      dest: "{{ kubeconfig_host }}/config"
+      remote_src: yes
+      owner: ubuntu
+      group: ubuntu
+      mode: '0644'
+
+  - name: Set KUBECONFIG environment
+    lineinfile:
+      path: /home/ubuntu/.bashrc
+      line: 'export KUBECONFIG={{ kubeconfig_host }}/config'
+      create: yes
+      state: present
+
+  # ---------------------------
+  # 7. Verify k3s
+  # ---------------------------
+  - name: Test kubectl version
+    command: kubectl version --client
+    register: kubectl_version
+    changed_when: false
+
+  - debug:
+      var: kubectl_version.stdout
