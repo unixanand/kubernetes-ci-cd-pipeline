@@ -4,6 +4,7 @@
   vars:
     jenkins_home: /var/jenkins_home
     kubeconfig_host: /home/ubuntu/.kube
+    jenkins_image_dir: /home/ubuntu/jenkins-docker
 
   tasks:
 
@@ -61,7 +62,33 @@
 
 
   # -------------------------------------------------
-  # Jenkins via Docker (production-style)
+  # Build custom Jenkins image with Docker CLI
+  # -------------------------------------------------
+
+  - name: Create directory for Jenkins Docker build
+    file:
+      path: "{{ jenkins_image_dir }}"
+      state: directory
+
+  - name: Create Dockerfile for Jenkins with Docker CLI
+    copy:
+      dest: "{{ jenkins_image_dir }}/Dockerfile"
+      content: |
+        FROM jenkins/jenkins:lts
+        USER root
+        RUN apt-get update && apt-get install -y docker.io
+        USER jenkins
+
+  - name: Build custom Jenkins image
+    community.docker.docker_image:
+      name: jenkins-docker
+      build:
+        path: "{{ jenkins_image_dir }}"
+      source: build
+
+
+  # -------------------------------------------------
+  # Jenkins container
   # -------------------------------------------------
 
   - name: Create Jenkins home directory
@@ -72,17 +99,12 @@
       group: 1000
       mode: '0755'
 
-  - name: Pull Jenkins Docker image
-    community.docker.docker_image:
-      name: jenkins/jenkins
-      tag: lts
-      source: pull
-
   - name: Run Jenkins container
     community.docker.docker_container:
       name: jenkins
-      image: jenkins/jenkins:lts
+      image: jenkins-docker
       state: started
+      recreate: yes
       restart_policy: always
       ports:
         - "8080:8080"
@@ -91,4 +113,3 @@
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
-
