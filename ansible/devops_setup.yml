@@ -107,5 +107,5 @@
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
-      group_add:
+      groups:
         - "{{ docker_sock_gid.stdout }}"
