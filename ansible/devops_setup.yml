@@ -68,7 +68,7 @@
       mode: '0755'
 
   # -------------------------------------------------
-  # 4. Build custom Jenkins image with Docker CLI
+  # 4. Build custom Jenkins image with Docker CLI + kubectl
   # -------------------------------------------------
 
   - name: Ensure Jenkins Docker build directory exists
@@ -79,7 +79,7 @@
       group: ubuntu
       mode: '0755'
 
-  - name: Create Dockerfile for Jenkins with Docker CLI
+  - name: Create Dockerfile for Jenkins with Docker CLI and kubectl
     copy:
       dest: "{{ jenkins_image_dir }}/Dockerfile"
       content: |
@@ -87,7 +87,7 @@
 
         USER root
 
-        # Install official Docker CLI inside Jenkins container
+        # Install Docker CLI
         RUN apt-get update \
          && apt-get install -y \
               ca-certificates \
@@ -103,6 +103,11 @@
          && apt-get update \
          && apt-get install -y docker-ce-cli \
          && apt-get clean
+
+        # Install kubectl
+        RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+         && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
+         && rm kubectl
 
         USER jenkins
 
