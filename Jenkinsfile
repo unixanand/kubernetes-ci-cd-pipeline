@@ -5,49 +5,42 @@ pipeline {
         IMAGE_NAME = "08474/kubernetes-app"
         TAG = "${BUILD_NUMBER}"
         DOCKER_CREDS = "dockerhub-creds"
+        KUBECONFIG = "/var/jenkins_home/.kube/config"
     }
 
     stages {
 
-        
         stage('Clone Repo') {
             steps {
-                
-                    git branch: 'main', url: 'https://github.com/unixanand/kubernetes-ci-cd-pipeline.git'
-               }
+                git branch: 'main', url: 'https://github.com/unixanand/kubernetes-ci-cd-pipeline.git'
+            }
         }
 
         stage('Build Docker Image') {
             steps {
-                
-                    sh 'docker build -t $IMAGE_NAME:$TAG .'
-                
+                sh 'docker build -t $IMAGE_NAME:$TAG .'
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                dir('/opt/devops-project') {
-                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        sh '''
-                          echo $PASS | docker login -u $USER --password-stdin
-                          docker push $IMAGE_NAME:$TAG
-                          docker logout
-                        '''
-                    }
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDS}", usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh '''
+                      echo $PASS | docker login -u $USER --password-stdin
+                      docker push $IMAGE_NAME:$TAG
+                      docker logout
+                    '''
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                dir('/opt/devops-project') {
-                    sh '''
-                      kubectl apply -f streamlit-deployment.yaml
-                      kubectl set image deployment/streamlit-app streamlit=$IMAGE_NAME:$TAG
-                      kubectl rollout status deployment/streamlit-app
-                    '''
-                }
+                sh '''
+                  kubectl apply -f streamlit-deployment.yaml
+                  kubectl set image deployment/streamlit-app streamlit=$IMAGE_NAME:$TAG
+                  kubectl rollout status deployment/streamlit-app
+                '''
             }
         }
     }
