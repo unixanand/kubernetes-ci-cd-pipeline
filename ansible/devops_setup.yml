@@ -9,10 +9,16 @@
   tasks:
 
   # -------------------------------------------------
-  # 1. Base system
+  # 1. System preparation
   # -------------------------------------------------
 
-  - name: Install required packages
+  - name: Ensure jenkins user exists
+    user:
+      name: jenkins
+      shell: /bin/bash
+      create_home: yes
+
+  - name: Install base packages
     apt:
       name:
         - curl
@@ -21,11 +27,20 @@
         - git
         - unzip
         - lsb-release
-        - docker.io
-      update_cache: yes
       state: present
+      update_cache: yes
 
-  - name: Enable Docker
+  # -------------------------------------------------
+  # 2. Install Docker on host
+  # -------------------------------------------------
+
+  - name: Install Docker
+    apt:
+      name: docker.io
+      state: present
+      update_cache: yes
+
+  - name: Start Docker
     service:
       name: docker
       state: started
@@ -38,29 +53,29 @@
       append: yes
 
   # -------------------------------------------------
-  # 2. Install k3s Kubernetes
+  # 3. Install k3s Kubernetes FIRST
   # -------------------------------------------------
 
-  - name: Download k3s installer
+  - name: Download k3s install script
     get_url:
       url: https://get.k3s.io
       dest: /tmp/k3s_install.sh
       mode: '0755'
 
-  - name: Install k3s single node
+  - name: Install k3s
     shell: /tmp/k3s_install.sh --write-kubeconfig-mode 644
     args:
       creates: /usr/local/bin/kubectl
 
-  - name: Wait for k3s API to be ready
-    shell: kubectl get nodes
+  - name: Wait for k3s to be ready
+    shell: kubectl get node
     register: k3s_ready
     retries: 10
     delay: 10
     until: k3s_ready.rc == 0
 
   # -------------------------------------------------
-  # 3. Prepare kubeconfig for Jenkins
+  # 4. Prepare kubeconfig for Jenkins
   # -------------------------------------------------
 
   - name: Ensure kube directory exists
@@ -80,23 +95,21 @@
       group: ubuntu
       mode: '0644'
 
-  # Get EC2 private IP dynamically
-  - name: Get host private IP
+  - name: Get private IP
     shell: hostname -I | awk '{print $1}'
     register: private_ip
 
-  # Replace localhost with real host IP (PERMANENT FIX)
-  - name: Update kubeconfig server address
+  - name: Replace localhost in kubeconfig
     replace:
       path: "{{ kubeconfig_host }}/config"
-      regexp: 'https://127.0.0.1:6443'
-      replace: "https://{{ private_ip.stdout }}:6443"
+      regexp: '127.0.0.1'
+      replace: "{{ private_ip.stdout }}"
 
   # -------------------------------------------------
-  # 4. Build Jenkins image with Docker + kubectl
+  # 5. Build Jenkins image with Docker + kubectl
   # -------------------------------------------------
 
-  - name: Create Jenkins build directory
+  - name: Ensure Jenkins Docker build directory exists
     file:
       path: "{{ jenkins_image_dir }}"
       state: directory
@@ -112,22 +125,24 @@
         USER root
 
         RUN apt-get update && apt-get install -y \
-            ca-certificates curl gnupg lsb-release \
-         && mkdir -m 0755 -p /etc/apt/keyrings \
+            ca-certificates curl gnupg lsb-release
+
+        RUN mkdir -m 0755 -p /etc/apt/keyrings \
          && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
          && echo \
-           "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-           $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-           > /etc/apt/sources.list.d/docker.list \
-         && apt-get update \
-         && apt-get install -y docker-ce-cli \
-         && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+         "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+         $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+         > /etc/apt/sources.list.d/docker.list
+
+        RUN apt-get update && apt-get install -y docker-ce-cli
+
+        RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
          && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
          && rm kubectl
 
         USER jenkins
 
-  - name: Build Jenkins Docker image
+  - name: Build Jenkins image
     community.docker.docker_image:
       name: jenkins-docker
       build:
@@ -135,7 +150,7 @@
       source: build
 
   # -------------------------------------------------
-  # 5. Run Jenkins container
+  # 6. Run Jenkins container
   # -------------------------------------------------
 
   - name: Create Jenkins home
@@ -158,21 +173,23 @@
       ports:
         - "8080:8080"
         - "50000:50000"
+      env:
+        KUBECONFIG: /var/jenkins_home/.kube/config
       volumes:
         - "{{ jenkins_home }}:/var/jenkins_home"
         - "/var/run/docker.sock:/var/run/docker.sock"
         - "{{ kubeconfig_host }}:/var/jenkins_home/.kube"
 
   # -------------------------------------------------
-  # 6. Validate Kubernetes from Jenkins
+  # 7. Verify from Jenkins container
   # -------------------------------------------------
 
   - name: Test kubectl inside Jenkins
     command: docker exec jenkins kubectl get nodes
-    register: test_k8s
+    register: result
     retries: 5
     delay: 10
-    until: test_k8s.rc == 0
+    until: result.rc == 0
 
   - debug:
-      var: test_k8s.stdout
+      var: result.stdout
