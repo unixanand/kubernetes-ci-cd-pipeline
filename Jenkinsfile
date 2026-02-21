@@ -37,7 +37,7 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 sh '''
-                  kubectl apply -f streamlit-deployment.yaml
+                  kubectl apply -f k8s/streamlit-deployment.yaml
                   kubectl set image deployment/streamlit-app streamlit=$IMAGE_NAME:$TAG
                   kubectl rollout status deployment/streamlit-app
                 '''
